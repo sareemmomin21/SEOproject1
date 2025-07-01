@@ -1,3 +1,7 @@
+import sys
+import os
+
+
 from food_facts_api import get_food_fact_from_barcode
 
 
