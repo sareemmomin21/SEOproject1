@@ -4,7 +4,7 @@ import os
 # Add the root project directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.api_handlers.food_facts_api import get_food_fact_from_barcode
+from src.api_handlers.food_facts_api import get_food_fact_from_barcode, search_alternative_products
 from src.database.database import insert_scan, insert_alternative
 
 
@@ -31,17 +31,35 @@ def main():
     dietary_options = ["vegan", "vegetarian", "low-carb", "keto", "halal"]
     allergy_options = ["nuts", "gluten", "dairy", "soy", "shellfish"]
 
+    # Show numbered dietary options
     print("\nAvailable Dietary Filters:")
-    for option in dietary_options:
-        print(f"- {option}")
-    dietary_filters = input("\nEnter dietary filters (comma-separated): ").split(",")
+    for idx, option in enumerate(dietary_options, start=1):
+        print(f"{idx}. {option}")
+    dietary_input = input("\nEnter dietary filter numbers (comma-separated): ")
+    dietary_filters = [dietary_options[int(i.strip()) - 1] for i in dietary_input.split(",") if i.strip().isdigit() and 1 <= int(i.strip()) <= len(dietary_options)]
 
+    # Show numbered allergy options
     print("\nCommon Allergy Filters:")
-    for option in allergy_options:
-        print(f"- {option}")
-    allergy_filters = input("Enter allergy filters (comma-separated): ").split(",")
+    for idx, option in enumerate(allergy_options, start=1):
+        print(f"{idx}. {option}")
+    allergy_input = input("Enter allergy filter numbers (comma-separated): ")
+    allergy_filters = [allergy_options[int(i.strip()) - 1] for i in allergy_input.split(",") if i.strip().isdigit() and 1 <= int(i.strip()) <= len(allergy_options)]
 
-    budget_limit = float(input("Enter your budget limit (e.g. 5.99): "))
+
+    while True:
+        try:
+            budget_input = input("Enter your budget limit (e.g. 5.99): ").strip()
+            if not budget_input:
+                print("⚠️ Budget cannot be empty. Please try again.")
+                continue
+            budget_limit = float(budget_input)
+            if budget_limit <= 0:
+                print("⚠️ Please enter a budget greater than 0.")
+                continue
+            break
+        except ValueError:
+            print("⚠️ Invalid input. Please enter a number like 4.99.")
+
 
     # Step 5: Insert the scan into the database
     scan_id = insert_scan(
@@ -53,26 +71,29 @@ def main():
     )
 
     # Step 6: Insert a dummy alternative (placeholder)
-    estimated_cost = budget_limit * 0.9
-    ai_insight = "This is a placeholder suggestion."
-
-    insert_alternative(
-        scan_id=scan_id,
+    # Step 6: Search for real alternative
+    alternatives = search_alternative_products(
         product_name=product["product_name"],
-        nutrition_info={"note": "Not fetched yet."},
-        estimated_cost=estimated_cost,
-        ai_insight=ai_insight,
-        user_rating="pending"
+        dietary_filters=dietary_filters,
+        allergy_filters=allergy_filters,
+        max_price=budget_limit
     )
 
-    print("\n✅ Scan and alternative successfully stored.")
+    if alternatives:
+        alt = alternatives[0]  # Just take the first valid match
+        insert_alternative(
+            scan_id=scan_id,
+            product_name=alt.get("product_name", "Unknown"),
+            nutrition_info=alt.get("nutriments", {}),
+            estimated_cost=budget_limit * 0.9,
+            ai_insight="Recommended based on your filters.",
+            user_rating="pending"
+        )
+        print("\n✅ Real alternative found and stored!")
+        print("Alternative Product:", alt.get("product_name"))
+    else:
+        print("\n⚠️ No suitable alternatives found.")
 
-    # Display the dummy alternative suggestion
-    print("\n🔁 Suggested Alternative:")
-    print(f"Product Name: {product['product_name']}")
-    print(f"Estimated Cost: ${estimated_cost:.2f}")
-    print(f"AI Insight: {ai_insight}")
-    print("User Rating: pending")
 
 if __name__ == "__main__":
     main()
