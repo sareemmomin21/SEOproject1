@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS scans (
     allergy_filters TEXT[],           -- array of allergies
     budget_limit NUMERIC              -- budget user sets (e.g., 5.99)
 );
+
 -- Table for suggested healthier alternatives
 CREATE TABLE IF NOT EXISTS alternatives (
     id SERIAL PRIMARY KEY,
