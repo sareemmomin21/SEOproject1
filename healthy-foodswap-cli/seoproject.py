@@ -1,5 +1,12 @@
 import sys
 import os
+import requests
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables from .env next to this script
+dotenv_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path)
 
 # Add the root project directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -19,13 +26,20 @@ def main():
     print("You can scan a product barcode to get started.\n")
     barcode = input("Enter a barcode to scan: ").strip()
 
-    # Step 2: Call the OpenFoodFacts API
+    # Step 2: Call the OpenFoodFacts API for basic info
     product = get_food_fact_from_barcode(barcode)
 
     # Step 3: Check if the product was found
     if "error" in product:
         print("Error:", product["error"])
         return
+
+    # Fetch full product data to grab nutriments for comparison
+    full_resp = requests.get(
+        f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    )
+    full_data = full_resp.json().get("product", {})
+    orig_nutri = full_data.get("nutriments", {})
 
     print("\nFetched Product Info:")
     print(product)
@@ -34,7 +48,6 @@ def main():
     dietary_options = ["vegan", "vegetarian", "low-carb", "keto", "halal"]
     allergy_options = ["nuts", "gluten", "dairy", "soy", "shellfish"]
 
-    # Show numbered dietary options
     print("\nAvailable Dietary Filters:")
     for idx, option in enumerate(dietary_options, start=1):
         print(f"{idx}. {option}")
@@ -45,7 +58,6 @@ def main():
         if i.strip().isdigit() and 1 <= int(i.strip()) <= len(dietary_options)
     ]
 
-    # Show numbered allergy options
     print("\nCommon Allergy Filters:")
     for idx, option in enumerate(allergy_options, start=1):
         print(f"{idx}. {option}")
@@ -57,9 +69,8 @@ def main():
     ]
 
     # Step 5: Optional budget — user can press Enter to skip
-    budget_input = input("Enter your budget limit (e.g. 5.99) [press Enter to skip]: ").strip()
+    budget_input = input("\nEnter your budget limit (e.g. 5.99) [press Enter to skip]: ").strip()
     if budget_input:
-        # Validate numeric budget
         while True:
             try:
                 budget_limit = float(budget_input)
@@ -83,7 +94,7 @@ def main():
         budget_limit=budget_limit,
     )
 
-    # Step 7: Search for real alternatives (no price filter if budget_limit is None)
+    # Step 7: Search for real alternatives
     alternatives = search_alternative_products(
         product_name=product["product_name"],
         dietary_filters=dietary_filters,
@@ -92,19 +103,57 @@ def main():
     )
 
     if alternatives:
-        alt = alternatives[0]  # Take the first match
+        alt = alternatives[0]
+        alt_nutri = alt.get("nutriments", {})
+
         insert_alternative(
             scan_id=scan_id,
             product_name=alt.get("product_name", "Unknown"),
-            nutrition_info=alt.get("nutriments", {}),
-            estimated_cost=None if budget_limit is None else budget_limit * 0.9,
+            nutrition_info=alt_nutri,
+            estimated_cost=None if budget_limit is None else round(budget_limit * 0.9, 2),
             ai_insight="Recommended based on your filters.",
             user_rating="pending"
         )
+
         print("\n✅ Real alternative found and stored!")
         print("Alternative Product:", alt.get("product_name"))
+        print("Alternative Barcode:", alt.get("code", "N/A"))
+
+        # --- Nutrition comparison per 100g with arrow ---
+        metrics = {
+            "Calories": ("energy-kcal", "kcal"),
+            "Sugar": ("sugars_100g", "g"),
+            "Protein": ("proteins_100g", "g"),
+            "Fat": ("fat_100g", "g"),
+            "Carbohydrates": ("carbohydrates_100g", "g"),
+        }
+        print("\nNutrition comparison (per 100g):")
+        for label, (key, unit) in metrics.items():
+            o = orig_nutri.get(key)
+            a = alt_nutri.get(key)
+            if o is not None and a is not None:
+                # always show higher→lower
+                hi, lo = (o, a) if o >= a else (a, o)
+                print(f" • {label}: {hi} {unit} → {lo} {unit}")
+
+        # Short explanation of why it's better
+        reasons = []
+        if dietary_filters:
+            reasons.append(f"Matches your {' & '.join(dietary_filters)} diet")
+        if allergy_filters:
+            reasons.append(f"avoids {', '.join(allergy_filters)}")
+        if budget_limit is not None:
+            reasons.append(f"fits within your budget of ${budget_limit:.2f}")
+        explanation = " and ".join(reasons) if reasons else "is a great choice!"
+        print("\nWhy it's better:\n", explanation)
+
     else:
         print("\n⚠️ No suitable alternatives found.")
 
 if __name__ == "__main__":
     main()
+
+# Barcode ex: 737628064502
+# Barcode ex: 10600425
+# 
+#
